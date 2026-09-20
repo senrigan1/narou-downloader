@@ -8,7 +8,8 @@
     SHParser:https://github.com/minouejapan/SimpleHTMLParser
     TRegExpr:https://github.com/andgineer/TRegExpr
 
-    ver5.95 2026/09/19 大見出しをデコードしていなかった不具合を修正した
+    ver5.96 2026/09/20  指定したURLが無効でもテキストファイルを出力していた不具合を修正した
+    ver5.95 2026/09/19  大見出しをデコードしていなかった不具合を修正した
     ver5.94 2026/09/15  本文中に<>で囲まれた語句を不要なHTMLタグとして削除していた不具合を修正した
     ver5.93 2026/08/27  ルビの後ろに半角空白が入る場合があった不具合を修正した
                         トップページから作品情報を取得出来なくなった不具合を修正した
@@ -416,7 +417,7 @@ begin
 end;
 
 // メイン処理
-procedure NarouDL(URLAddr: string);
+function NarouDL(URLAddr: string): Boolean;
 var
   res, aurl, txt, title, author, st, sendstr: string;
   stat: TNvStat;
@@ -432,7 +433,10 @@ var
   conhdl: THandle;
 {$ENDIF}
 begin
+  Result := False;
   res := GetHTML(URLAddr, CookieName, CookieData);
+  if UTF8Pos('<title>エラー</title>', res) > 1 then   // 作品がない
+    Exit;
   // トップページ
   stat :=  GetNvStat(res);
   isShort := stat.NvlStat = '短編';
@@ -443,6 +447,8 @@ begin
     Parser.OnBeforeGetText := @AozoraDecord;
     Parser.OnBeforeGetText := @AfterDecord;
     title := Parser.Find('h1', 'class', 'p-novel__title');
+    if title = '' then
+      Exit;
     // 作品タイトルに進捗状況を付加する
     if ((st = '【完結】') and (UTF8Pos('完結', title) = 0)) or (st <> '【完結】') then
       title    := st + title;
@@ -526,6 +532,7 @@ begin
     TextBuff.Add('［＃中見出し］' + title + '［＃中見出し終わり］');
     TextBuff.Add(GetBody(res));
     Writeln('短編のエピソードを取得しました.');
+    Result := True;
     Exit;
   end;
   Writeln('全' + IntToStr(stat.TotalPg) + 'ページ');
@@ -547,6 +554,8 @@ begin
       r.Free;
     end;
     txt := GetBody(res); // 本文を取得する
+    if txt = '' then
+      Exit;
     TextBuff.Add(txt);
 {$IFDEF MSWIN}
     if hWnd <> 0 then
@@ -555,6 +564,7 @@ begin
     Sleep(500); // サーバー側に負荷をかけないよう0.5秒のインターバルを入れる
   end;
   Writeln(CRLF+ ' ... ' + IntToStr(stat.TotalPg) + ' 個のエピソードを取得しました.');
+  Result := True;
 end;
 
 var
@@ -633,26 +643,29 @@ begin
   LogFile  := TStringList.Create;
   try
     Write('小説情報を取得中 ' + aurl + ' ... ');
-    NarouDL(aurl);
-    if not ExtFName then
+    if NarouDL(aurl) then
     begin
-      path := ExtractFilePath(ParamStr(0));
-      fn   := path + FileName;
-      ln   := path + LogName;
-    end else begin
-      fn   := FileName;
-      ln   := LogName;
-    end;
-    TextBuff.SaveToFile(fn, TEncoding.UTF8);
-    LogFile.SaveToFile(ln, TEncoding.UTF8);
-    if not FileExists(fn) then
-      Writeln(fn + 'の保存に失敗しました.')
-    else
-      Writeln(FileName + 'を保存しました.');
-  finally
+      if not ExtFName then
+      begin
+        path := ExtractFilePath(ParamStr(0));
+        fn   := path + FileName;
+        ln   := path + LogName;
+      end else begin
+        fn   := FileName;
+        ln   := LogName;
+      end;
+      TextBuff.SaveToFile(fn, TEncoding.UTF8);
+      LogFile.SaveToFile(ln, TEncoding.UTF8);
+      if not FileExists(fn) then
+        Writeln(fn + 'の保存に失敗しました.')
+      else
+        Writeln(FileName + 'を保存しました.');
+      Writeln('終了しました.');
+		end else
+      Writeln('指定URLの作品を取得出来ませんでした.');
+	finally
     TextBuff.Free;
     LogFile.Free;
   end;
-  Writeln('終了しました.');
 end.
 
