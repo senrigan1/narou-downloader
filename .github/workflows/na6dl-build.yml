@@ -1,0 +1,95 @@
+name: na6dl build
+
+on:
+  pull_request:
+    paths:
+      - "na6dl.dpr"
+      - "bookjson.pas"
+      - "unihtml.pas"
+      - "lazutf8wrap.pas"
+      - ".github/workflows/na6dl-build.yml"
+  push:
+    branches:
+      - main
+      - feature/novel-reader-importer
+    paths:
+      - "na6dl.dpr"
+      - "bookjson.pas"
+      - "unihtml.pas"
+      - "lazutf8wrap.pas"
+      - ".github/workflows/na6dl-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Free Pascal dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            fp-compiler fp-units-fcl fp-units-net lcl-utils
+          fpc -iV
+
+      - name: Fetch pinned Pascal source dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          simple_html_parser_sha="7f606592557f429a4d9e176be5c0f04fd5be0460"
+          tregexpr_sha="19389caeb6823cddfb110ed284f57d1088dd8ac2"
+
+          git init _deps/SimpleHTMLParser
+          git -C _deps/SimpleHTMLParser remote add origin \
+            https://github.com/minouejapan/SimpleHTMLParser.git
+          git -C _deps/SimpleHTMLParser fetch --depth 1 origin "$simple_html_parser_sha"
+          git -C _deps/SimpleHTMLParser checkout --detach FETCH_HEAD
+          test "$(git -C _deps/SimpleHTMLParser rev-parse HEAD)" = "$simple_html_parser_sha"
+          test -f _deps/SimpleHTMLParser/shparser.pas
+          test -f _deps/SimpleHTMLParser/hparse.pas
+
+          git init _deps/TRegExpr
+          git -C _deps/TRegExpr remote add origin \
+            https://github.com/andgineer/TRegExpr.git
+          git -C _deps/TRegExpr fetch --depth 1 origin "$tregexpr_sha"
+          git -C _deps/TRegExpr checkout --detach FETCH_HEAD
+          test "$(git -C _deps/TRegExpr rev-parse HEAD)" = "$tregexpr_sha"
+          test -f _deps/TRegExpr/src/regexpr.pas
+          test -f _deps/TRegExpr/src/regexpr_compilers.inc
+          test -f _deps/TRegExpr/src/regexpr_unicodedata.pas
+
+      - name: Compile na6dl for Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          lazutils_dir="$(dirname "$(find /usr/lib/lazarus -type f -iname lazutf8.ppu -print -quit)")"
+          test -n "$lazutils_dir"
+          mkdir -p build/units
+          fpc \
+            -Fu. \
+            -Fu_deps/SimpleHTMLParser \
+            -Fu_deps/TRegExpr/src \
+            -Fu"$lazutils_dir" \
+            -FEbuild \
+            -FUbuild/units \
+            na6dl.dpr
+          test -x build/na6dl
+
+      - name: Check CLI usage without network access
+        shell: bash
+        run: |
+          set +e
+          usage_output="$(./build/na6dl 2>&1)"
+          exit_code=$?
+          set -e
+          printf '%s\n' "$usage_output"
+          test "$exit_code" -eq 255
+          grep -F -- "na6dl --json" <<<"$usage_output"
