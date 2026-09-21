@@ -76,6 +76,7 @@ uses
 {$ENDIF}
   UniHtml,
   SHParser,
+  BookJson,
 {$IFDEF FPC}
   LazUTF8
 {$ELSE}
@@ -144,7 +145,10 @@ var
   CookieData: string;
   hWnd: THandle;
   StartN: integer;
-  ExtFName: boolean;
+  ExtFName,
+  JsonMode: boolean;
+  JsonFileName: string;
+  BookData: TBookJson;
 
 
 // HTML特殊文字の処理
@@ -261,6 +265,64 @@ begin
   Result := tmp;
 end;
 
+// Novel Reader用のプレーンテキスト変換
+// 青空文庫の装飾命令は加えず、ルビは親文字だけを残す
+function PlainTextDecord(Src: string): string;
+var
+  tmp: string;
+begin
+  tmp := UTF8StringReplace(Src, '<br />', CRLF, [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp, '<br/>', CRLF, [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp, '<br>', CRLF, [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp, '</p>', CRLF, [rfReplaceAll]);
+  tmp := ReplaceRegExpr('<rp>.*?</rp>', tmp, '');
+  tmp := ReplaceRegExpr('<rt>.*?</rt>', tmp, '');
+  Result := Restore2RealChar(tmp);
+end;
+
+function TrimTrailingLineBreaks(const Value: string): string;
+begin
+  Result := Value;
+  while (Length(Result) > 0) and
+        ((Result[Length(Result)] = #13) or (Result[Length(Result)] = #10)) do
+    Delete(Result, Length(Result), 1);
+end;
+
+procedure AppendReaderPart(var Dest: string; const Value: string);
+var
+  Part: string;
+begin
+  Part := TrimTrailingLineBreaks(Value);
+  if Part = '' then
+    Exit;
+  if Dest <> '' then
+    Dest := Dest + CRLF + CRLF;
+  Dest := Dest + Part;
+end;
+
+procedure GetReaderChapter(const HTMLSrc: string; out ChapterTitle, ChapterBody: string);
+var
+  Parser: TSHParser;
+  Part: string;
+begin
+  ChapterTitle := '';
+  ChapterBody := '';
+  Parser := TSHParser.Create(HTMLSrc);
+  try
+    Parser.OnBeforeGetText := @PlainTextDecord;
+    Parser.OnAfterGetText := @AfterDecord;
+    ChapterTitle := Parser.Find('h1', 'class', 'p-novel__title p-novel__title--rensai');
+    Part := Parser.Find('div', 'class', 'js-novel-text p-novel__text p-novel__text--preface');
+    AppendReaderPart(ChapterBody, Part);
+    Part := Parser.Find('div', 'class', 'js-novel-text p-novel__text');
+    AppendReaderPart(ChapterBody, Part);
+    Part := Parser.Find('div', 'class', 'js-novel-text p-novel__text p-novel__text--afterword');
+    AppendReaderPart(ChapterBody, Part);
+  finally
+    Parser.Free;
+  end;
+end;
+
 // 作品情報取得
 function GetNvStat(Src: string): TNvStat;
 var
@@ -344,7 +406,7 @@ begin
   Result := '';
   // 実行環境がlINUXの場合も想定してCRLFをCRとLFそれぞれで削除する
   src := UTF8StringReplace(HTMLSrc, #13, '', [rfReplaceAll]);
-  src := UTF8StringReplace(HTMLSrc, #10, '', [rfReplaceAll]);
+  src := UTF8StringReplace(src, #10, '', [rfReplaceAll]);
   r := TRegExpr.Create;
   try
     r.InputString := src;
@@ -419,7 +481,8 @@ end;
 // メイン処理
 function NarouDL(URLAddr: string): Boolean;
 var
-  res, aurl, txt, title, author, st, sendstr: string;
+  res, aurl, txt, title, author, st, sendstr,
+  RawTitle, ReaderTitle, ReaderBody: string;
   stat: TNvStat;
   i: integer;
   Parser: TSHParser;
@@ -445,10 +508,17 @@ begin
   try
     // テキスト化の前処理を登録する
     Parser.OnBeforeGetText := @AozoraDecord;
-    Parser.OnBeforeGetText := @AfterDecord;
+    Parser.OnAfterGetText := @AfterDecord;
     title := Parser.Find('h1', 'class', 'p-novel__title');
     if title = '' then
       Exit;
+    if JsonMode then
+    begin
+      RawTitle := Parser.Find('h1', 'class', 'p-novel__title', False);
+      RawTitle := ReplaceRegExpr('<.*?>', RawTitle, '');
+      RawTitle := AfterDecord(Restore2RealChar(RawTitle));
+      BookData.Title := RawTitle;
+    end;
     // 作品タイトルに進捗状況を付加する
     if ((st = '【完結】') and (UTF8Pos('完結', title) = 0)) or (st <> '【完結】') then
       title    := st + title;
@@ -456,20 +526,25 @@ begin
     if CookieName <> '' then
       title := R18MARK + title;
     // ファイル名を準備する
-    if FileName = '' then
+    if not JsonMode then
     begin
-      FileName := Parser.PathFilter(title);
-      ExtFName := False;
-      LogName  := FileName + '.log';
-      FileName := FileName + '.txt';
-    end else begin
-      LogName := ChangeFileExt(FileName, '.log');
-      ExtFName := True;
+      if FileName = '' then
+      begin
+        FileName := Parser.PathFilter(title);
+        ExtFName := False;
+        LogName  := FileName + '.log';
+        FileName := FileName + '.txt';
+      end else begin
+        LogName := ChangeFileExt(FileName, '.log');
+        ExtFName := True;
+      end;
     end;
 
     TextBuff.Add(title);
     author := Parser.Find('div', 'class', 'p-novel__author', False);
     author := ReplaceRegExpr('<.*?>', ReplaceRegExpr('作者：', author, ''), '');
+    if JsonMode then
+      BookData.Author := AfterDecord(Restore2RealChar(author));
     TextBuff.Add(author);
     TextBuff.Add(CRLF + '［＃改ページ］');
     // あらすじは<br />で改行なのでテキスト成型なしで取得
@@ -529,6 +604,15 @@ begin
     finally
       r.Free;
     end;
+    if JsonMode then
+    begin
+      GetReaderChapter(res, ReaderTitle, ReaderBody);
+      if ReaderTitle = '' then
+        ReaderTitle := RawTitle;
+      if ReaderBody = '' then
+        Exit;
+      BookData.AddChapter(ReaderTitle, ReaderBody);
+    end;
     TextBuff.Add('［＃中見出し］' + title + '［＃中見出し終わり］');
     TextBuff.Add(GetBody(res));
     Writeln('短編のエピソードを取得しました.');
@@ -553,6 +637,13 @@ begin
     finally
       r.Free;
     end;
+    if JsonMode then
+    begin
+      GetReaderChapter(res, ReaderTitle, ReaderBody);
+      if ReaderBody = '' then
+        Exit;
+      BookData.AddChapter(ReaderTitle, ReaderBody);
+    end;
     txt := GetBody(res); // 本文を取得する
     if txt = '' then
       Exit;
@@ -564,11 +655,13 @@ begin
     Sleep(500); // サーバー側に負荷をかけないよう0.5秒のインターバルを入れる
   end;
   Writeln(CRLF+ ' ... ' + IntToStr(stat.TotalPg) + ' 個のエピソードを取得しました.');
+  if JsonMode and not BookData.IsComplete then
+    Exit;
   Result := True;
 end;
 
 var
-  aurl, op, path, fn, ln: string;
+  aurl, op, path, fn, ln, OutputName, WorkId: string;
   i: integer;
 
 
@@ -578,18 +671,23 @@ begin
     Writeln('');
     Writeln(VERSION);
     Writeln('  使用方法');
-    Writeln('  na6dl [-sDL開始ページ番号] 小説トップページURL [保存するファイル名(省略するとタイトル名で保存します)]');
+    Writeln('  na6dl [-sDL開始ページ番号] 小説トップページURL [保存するTXTファイル名]');
+    Writeln('  na6dl --json 小説トップページURL [保存するJSONファイル名]');
     ExitCode := -1;
     Exit;
   end;
   StartN := 1;
   ExitCode := 0;
+  JsonMode := False;
   // オプション引数取得
   for i := 0 to ParamCount - 1 do
   begin
     op := ParamStr(i + 1);
+    // Novel Reader用JSON出力
+    if (op = '--json') or (op = '-j') then
+      JsonMode := True
     // Naro2mobiのWindowsハンドル
-    if UTF8Pos('-h', op) = 1 then
+    else if UTF8Pos('-h', op) = 1 then
     begin
       UTF8Delete(op, 1, 2);
       try
@@ -617,11 +715,15 @@ begin
       aurl := op;
       if UTF8Copy(aurl, UTF8Length(aurl), 1) <> '/' then
         aurl := aurl + '/';
+    // 不明なオプション
+    end else if UTF8Pos('-', op) = 1 then
+    begin
+      Writeln('Error: Unknown option ' + op);
+      ExitCode := -1;
+      Exit;
     // それ以外であれば保存ファイル名
     end else begin
-      FileName := op;
-      if UTF8UpperCase(ExtractFileExt(op)) <> '.TXT' then
-        FileName := FileName + '.txt';
+      OutputName := op;
     end;
   end;
 
@@ -630,6 +732,38 @@ begin
     Writeln('小説のURLが違います.');
     ExitCode := -1;
     Exit;
+  end;
+
+  if JsonMode then
+  begin
+    if StartN <> 1 then
+    begin
+      Writeln('JSON出力ではDL開始ページ番号を指定できません.');
+      ExitCode := -1;
+      Exit;
+    end;
+    WorkId := ExtractNarouWorkId(aurl);
+    if WorkId = '' then
+    begin
+      Writeln('JSON出力には作品トップページURLを指定してください.');
+      ExitCode := -1;
+      Exit;
+    end;
+    if OutputName = '' then
+      OutputName := 'book.json'
+    else if UTF8UpperCase(ExtractFileExt(OutputName)) <> '.JSON' then
+      OutputName := OutputName + '.json';
+    JsonFileName := ExpandFileName(OutputName);
+    if not DirectoryExists(ExtractFilePath(JsonFileName)) then
+    begin
+      Writeln('JSON出力先のフォルダーが存在しません.');
+      ExitCode := -1;
+      Exit;
+    end;
+  end else begin
+    FileName := OutputName;
+    if (FileName <> '') and (UTF8UpperCase(ExtractFileExt(FileName)) <> '.TXT') then
+      FileName := FileName + '.txt';
   end;
   // ノクターン系かどうか
   CookieName := ''; CookieData := '';
@@ -641,10 +775,25 @@ begin
 
   TextBuff := TStringList.Create;
   LogFile  := TStringList.Create;
+  if JsonMode then
+  begin
+    BookData := TBookJson.Create;
+    BookData.Id := WorkId;
+    BookData.SourceURL := aurl;
+  end;
   try
     Write('小説情報を取得中 ' + aurl + ' ... ');
     if NarouDL(aurl) then
     begin
+      if JsonMode then
+      begin
+        if BookData.SaveToFile(JsonFileName) then
+          Writeln(JsonFileName + 'を保存しました.')
+        else begin
+          Writeln(JsonFileName + 'の保存に失敗しました.');
+          ExitCode := -1;
+        end;
+      end else begin
       if not ExtFName then
       begin
         path := ExtractFilePath(ParamStr(0));
@@ -660,10 +809,14 @@ begin
         Writeln(fn + 'の保存に失敗しました.')
       else
         Writeln(FileName + 'を保存しました.');
+      end;
       Writeln('終了しました.');
-		end else
+		end else begin
+      ExitCode := -1;
       Writeln('指定URLの作品を取得出来ませんでした.');
+		end;
 	finally
+    BookData.Free;
     TextBuff.Free;
     LogFile.Free;
   end;

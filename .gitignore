@@ -1,1 +1,10 @@
 /artifacts/
+book.json
+*.book.json
+*.json.tmp
+/lib/
+*.o
+*.ppu
+/tests/bookjson_tests
+/tests/bookjson_tests.exe
+/tests/test-output.book.json
