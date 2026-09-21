@@ -27,6 +27,20 @@ begin
   Inc(PassedAssertions);
 end;
 
+function LoadUTF8File(const FileName: string): UTF8String;
+var
+  InputStream: TFileStream;
+begin
+  InputStream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  try
+    SetLength(Result, InputStream.Size);
+    if InputStream.Size > 0 then
+      InputStream.ReadBuffer(Result[1], InputStream.Size);
+  finally
+    InputStream.Free;
+  end;
+end;
+
 procedure TestWorkId;
 begin
   AssertEqual('n1234ab', ExtractNarouWorkId('https://ncode.syosetu.com/n1234ab/'),
@@ -53,8 +67,8 @@ end;
 procedure TestBookOutput;
 var
   Book, IncompleteBook: TBookJson;
-  Lines: TStringList;
-  JsonText, OutputFile: string;
+  JsonText: UTF8String;
+  OutputFile: string;
 begin
   OutputFile := ExtractFilePath(ParamStr(0)) + 'test-output.book.json';
   if FileExists(OutputFile) then
@@ -80,19 +94,13 @@ begin
     Book.AddChapter('第二話', '引用"と\と' + #9 + 'タブ');
     AssertTrue(Book.SaveToFile(OutputFile), 'complete book was not saved');
 
-    Lines := TStringList.Create;
-    try
-      Lines.LoadFromFile(OutputFile, TEncoding.UTF8);
-      JsonText := Lines.Text;
-    finally
-      Lines.Free;
-    end;
+    JsonText := LoadUTF8File(OutputFile);
     AssertTrue(Pos('"schemaVersion": "0.1"', JsonText) > 0,
       'schema version missing');
     AssertTrue(Pos('"id": "001"', JsonText) < Pos('"id": "002"', JsonText),
       'chapter order is incorrect');
     AssertTrue(Pos('一行目\r\n二行目', JsonText) > 0,
-      'multiline body was not escaped; generated JSON: ' + JsonText);
+      'multiline body was not escaped');
     AssertTrue(Pos('引用\"と\\と\tタブ', JsonText) > 0,
       'quote, backslash, or tab was not escaped');
     AssertTrue(Pos('［＃', JsonText) = 0,
