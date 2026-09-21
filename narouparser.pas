@@ -4,6 +4,8 @@ unit NarouParser;
   {$MODE DELPHI}
   {$CODEPAGE UTF8}
   {$H+}
+  {$WARN IMPLICIT_STRING_CAST OFF}
+  {$WARN IMPLICIT_STRING_CAST_LOSS OFF}
 {$ENDIF}
 
 interface
