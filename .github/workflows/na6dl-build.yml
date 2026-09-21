@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            fp-compiler fp-units-fcl fp-units-net lcl-utils
+            fp-compiler fp-units-fcl fp-units-net lazarus-src
           fpc -iV
 
       - name: Fetch pinned Pascal source dependencies
@@ -70,7 +70,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          lazutils_dir="$(dirname "$(find /usr/lib/lazarus -type f -iname lazutf8.ppu -print -quit)")"
+          lazutf8_source="$(find /usr/lib/lazarus -type f -iname lazutf8.pas -print -quit)"
+          test -n "$lazutf8_source"
+          lazutils_dir="$(dirname "$lazutf8_source")"
           test -n "$lazutils_dir"
           mkdir -p build/units
           fpc \
