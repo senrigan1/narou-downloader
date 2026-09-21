@@ -9,10 +9,14 @@ program BookJsonTests;
 uses
   Classes, SysUtils, BookJson;
 
+var
+  PassedAssertions: Integer = 0;
+
 procedure AssertTrue(const Condition: Boolean; const MessageText: string);
 begin
   if not Condition then
     raise Exception.Create(MessageText);
+  Inc(PassedAssertions);
 end;
 
 procedure AssertEqual(const Expected, Actual, MessageText: string);
@@ -20,6 +24,7 @@ begin
   if Expected <> Actual then
     raise Exception.Create(MessageText + ': expected "' + Expected +
       '", actual "' + Actual + '"');
+  Inc(PassedAssertions);
 end;
 
 procedure TestWorkId;
@@ -104,7 +109,8 @@ begin
     TestWorkId;
     TestJsonEscape;
     TestBookOutput;
-    Writeln('bookjson tests: PASS');
+    Writeln('bookjson tests: PASS (' + IntToStr(PassedAssertions) +
+      ' assertions, 0 failures)');
   except
     on E: Exception do
     begin
