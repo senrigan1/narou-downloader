@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "0.1",
+  "id": "sample-work",
+  "title": "サンプル作品",
+  "author": "サンプル作者",
+  "source": {
+    "site": "syosetu.com",
+    "url": "https://ncode.syosetu.com/n0000aa/"
+  },
+  "chapters": [
+    {
+      "id": "001",
+      "title": "第一話",
+      "body": "これは動作確認用のダミー本文です。"
+    },
+    {
+      "id": "002",
+      "title": "第二話",
+      "body": "実在作品の本文はリポジトリに保存しません。"
+    }
+  ]
+}
