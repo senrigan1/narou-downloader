@@ -95,7 +95,9 @@ uses
 *)
 
 {$IFDEF MSWIN}
+  {$IFNDEF NA6DL_DIRECT_BUILD}
   {$R *.res}
+  {$ENDIF}
   {$R na6dlver.res}
 {$ENDIF}
 

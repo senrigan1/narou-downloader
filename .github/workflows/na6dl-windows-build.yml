@@ -92,6 +92,7 @@ jobs:
             '-Fu_deps/SimpleHTMLParser' `
             '-Fu_deps/TRegExpr/src' `
             "-Fu$lazUtilsDir" `
+            '-dNA6DL_DIRECT_BUILD' `
             '-FEbuild' `
             '-FUbuild/units' `
             na6dl.dpr
