@@ -55,6 +55,27 @@ begin
             ((Ch >= '0') and (Ch <= '9'));
 end;
 
+function CreateUniqueSiblingName(const AFileName, ASuffix: string): string;
+var
+  Attempt: Integer;
+  Guid: TGUID;
+  Token: string;
+begin
+  Result := '';
+  for Attempt := 1 to 100 do
+  begin
+    if CreateGUID(Guid) <> 0 then
+      Exit;
+    Token := GUIDToString(Guid);
+    Token := StringReplace(Token, '{', '', [rfReplaceAll]);
+    Token := StringReplace(Token, '}', '', [rfReplaceAll]);
+    Result := AFileName + '.' + Token + ASuffix;
+    if not FileExists(Result) and not DirectoryExists(Result) then
+      Exit;
+  end;
+  Result := '';
+end;
+
 function ExtractNarouWorkId(const AURL: string): string;
 const
   NORMAL_PREFIX = 'https://ncode.syosetu.com/';
@@ -186,32 +207,92 @@ function TBookJson.SaveToFile(const AFileName: string): Boolean;
 var
   Bytes: TBytes;
   OutputStream: TFileStream;
-  TempFileName: string;
+  OutputFileName, OutputDirectory, TempFileName, BackupFileName: string;
+  BackupCreated: Boolean;
 begin
   Result := False;
-  if not IsComplete then
-    Exit;
-
-  TempFileName := AFileName + '.tmp';
-  if FileExists(TempFileName) and not DeleteFile(TempFileName) then
-    Exit;
-
+  TempFileName := '';
+  BackupFileName := '';
+  BackupCreated := False;
   try
-    Bytes := TEncoding.UTF8.GetBytes(BuildJson);
-    OutputStream := TFileStream.Create(TempFileName, fmCreate);
     try
-      if Length(Bytes) > 0 then
-        OutputStream.WriteBuffer(Bytes[0], Length(Bytes));
-    finally
-      OutputStream.Free;
-    end;
+      if not IsComplete or (Trim(AFileName) = '') then
+        Exit;
 
-    if FileExists(AFileName) and not DeleteFile(AFileName) then
-      Exit;
-    Result := RenameFile(TempFileName, AFileName);
+      OutputFileName := ExpandFileName(AFileName);
+      OutputDirectory := ExtractFilePath(OutputFileName);
+      if not DirectoryExists(OutputDirectory) or
+         DirectoryExists(OutputFileName) then
+        Exit;
+
+      TempFileName := CreateUniqueSiblingName(OutputFileName, '.tmp');
+      if TempFileName = '' then
+        Exit;
+
+    {$IFDEF FPC}
+      Bytes := TEncoding.UTF8.GetBytes(UTF8Decode(BuildJson));
+    {$ELSE}
+      Bytes := TEncoding.UTF8.GetBytes(BuildJson);
+    {$ENDIF}
+      OutputStream := TFileStream.Create(TempFileName, fmCreate);
+      try
+        if Length(Bytes) > 0 then
+          OutputStream.WriteBuffer(Bytes[0], Length(Bytes));
+      finally
+        OutputStream.Free;
+      end;
+
+      if FileExists(OutputFileName) then
+      begin
+        BackupFileName := CreateUniqueSiblingName(OutputFileName, '.bak');
+        if BackupFileName = '' then
+          Exit;
+        if not RenameFile(OutputFileName, BackupFileName) then
+          Exit;
+        BackupCreated := True;
+      end;
+
+      if not RenameFile(TempFileName, OutputFileName) then
+      begin
+        if BackupCreated and RenameFile(BackupFileName, OutputFileName) then
+        begin
+          BackupCreated := False;
+          BackupFileName := '';
+        end;
+        Exit;
+      end;
+      TempFileName := '';
+
+      if BackupCreated then
+      begin
+        if not DeleteFile(BackupFileName) then
+        begin
+          TempFileName := CreateUniqueSiblingName(OutputFileName, '.tmp');
+          if (TempFileName <> '') and RenameFile(OutputFileName, TempFileName) then
+          begin
+            if RenameFile(BackupFileName, OutputFileName) then
+            begin
+              BackupCreated := False;
+              BackupFileName := '';
+            end else if RenameFile(TempFileName, OutputFileName) then
+              TempFileName := '';
+          end;
+          Exit;
+        end;
+        BackupCreated := False;
+        BackupFileName := '';
+      end;
+
+      Result := True;
+    except
+      Result := False;
+    end;
   finally
-    if FileExists(TempFileName) then
+    if (TempFileName <> '') and FileExists(TempFileName) then
       DeleteFile(TempFileName);
+    if BackupCreated and (BackupFileName <> '') and
+       FileExists(BackupFileName) and not FileExists(OutputFileName) then
+      RenameFile(BackupFileName, OutputFileName);
   end;
 end;
 

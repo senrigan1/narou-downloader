@@ -41,6 +41,22 @@ begin
   end;
 end;
 
+function CountMatchingFiles(const Pattern: string): Integer;
+var
+  SearchRec: TSearchRec;
+begin
+  Result := 0;
+  if FindFirst(Pattern, faAnyFile, SearchRec) = 0 then
+  try
+    repeat
+      if (SearchRec.Name <> '.') and (SearchRec.Name <> '..') then
+        Inc(Result);
+    until FindNext(SearchRec) <> 0;
+  finally
+    FindClose(SearchRec);
+  end;
+end;
+
 procedure TestWorkId;
 begin
   AssertEqual('n1234ab', ExtractNarouWorkId('https://ncode.syosetu.com/n1234ab/'),
@@ -67,10 +83,11 @@ end;
 procedure TestBookOutput;
 var
   Book, IncompleteBook: TBookJson;
-  JsonText: UTF8String;
-  OutputFile: string;
+  JsonText, PreviousJson: UTF8String;
+  OutputFile, OutputDirectory: string;
 begin
   OutputFile := ExtractFilePath(ParamStr(0)) + 'test-output.book.json';
+  OutputDirectory := ExtractFilePath(OutputFile);
   if FileExists(OutputFile) then
     DeleteFile(OutputFile);
 
@@ -93,6 +110,8 @@ begin
     Book.AddChapter('第一話', '一行目' + #13#10 + '二行目');
     Book.AddChapter('第二話', '引用"と\と' + #9 + 'タブ');
     AssertTrue(Book.SaveToFile(OutputFile), 'complete book was not saved');
+    AssertTrue(CountMatchingFiles(OutputFile + '.*.tmp') = 0,
+      'temporary file remained after new save');
 
     JsonText := LoadUTF8File(OutputFile);
     AssertTrue(Pos('"schemaVersion": "0.1"', JsonText) > 0,
@@ -109,6 +128,36 @@ begin
       'quote, backslash, or tab was not escaped');
     AssertTrue(Pos(UTF8Encode(UnicodeString('［＃')), JsonText) = 0,
       'Aozora command leaked into JSON');
+
+    PreviousJson := JsonText;
+    Book.Title := '更新後のダミー作品';
+    AssertTrue(Book.SaveToFile(OutputFile), 'existing book was not replaced');
+    JsonText := LoadUTF8File(OutputFile);
+    AssertTrue(Pos(UTF8Encode(UnicodeString('更新後のダミー作品')), JsonText) > 0,
+      'replacement content is missing');
+    AssertTrue(JsonText <> PreviousJson, 'existing content was not updated');
+
+    IncompleteBook := TBookJson.Create;
+    try
+      PreviousJson := JsonText;
+      AssertTrue(not IncompleteBook.SaveToFile(OutputFile),
+        'incomplete book replaced an existing book');
+      AssertTrue(LoadUTF8File(OutputFile) = PreviousJson,
+        'existing book was damaged by incomplete data');
+    finally
+      IncompleteBook.Free;
+    end;
+
+    AssertTrue(not Book.SaveToFile(''), 'empty output path was accepted');
+    AssertTrue(not Book.SaveToFile('   '), 'blank output path was accepted');
+    AssertTrue(not Book.SaveToFile(OutputDirectory),
+      'directory was accepted as an output file');
+    AssertTrue(DirectoryExists(OutputDirectory),
+      'output directory was damaged');
+    AssertTrue(CountMatchingFiles(OutputFile + '.*.tmp') = 0,
+      'temporary file remained after save tests');
+    AssertTrue(CountMatchingFiles(OutputFile + '.*.bak') = 0,
+      'backup file remained after save tests');
   finally
     Book.Free;
     if FileExists(OutputFile) then
