@@ -92,7 +92,7 @@ begin
     AssertTrue(Pos('"id": "001"', JsonText) < Pos('"id": "002"', JsonText),
       'chapter order is incorrect');
     AssertTrue(Pos('一行目\r\n二行目', JsonText) > 0,
-      'multiline body was not escaped');
+      'multiline body was not escaped; generated JSON: ' + JsonText);
     AssertTrue(Pos('引用\"と\\と\tタブ', JsonText) > 0,
       'quote, backslash, or tab was not escaped');
     AssertTrue(Pos('［＃', JsonText) = 0,
