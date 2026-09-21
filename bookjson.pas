@@ -229,11 +229,7 @@ begin
       if TempFileName = '' then
         Exit;
 
-    {$IFDEF FPC}
-      Bytes := TEncoding.UTF8.GetBytes(UTF8Decode(BuildJson));
-    {$ELSE}
       Bytes := TEncoding.UTF8.GetBytes(BuildJson);
-    {$ENDIF}
       OutputStream := TFileStream.Create(TempFileName, fmCreate);
       try
         if Length(Bytes) > 0 then
