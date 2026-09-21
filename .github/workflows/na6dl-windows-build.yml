@@ -1,0 +1,110 @@
+name: na6dl Windows build
+
+on:
+  pull_request:
+    paths:
+      - "na6dl.dpr"
+      - "bookjson.pas"
+      - "narouparser.pas"
+      - "unihtml.pas"
+      - "lazutf8wrap.pas"
+      - "na6dlver.res"
+      - ".github/workflows/na6dl-windows-build.yml"
+  push:
+    branches:
+      - main
+      - feature/novel-reader-importer
+    paths:
+      - "na6dl.dpr"
+      - "bookjson.pas"
+      - "narouparser.pas"
+      - "unihtml.pas"
+      - "lazutf8wrap.pas"
+      - "na6dlver.res"
+      - ".github/workflows/na6dl-windows-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pinned Lazarus and Free Pascal
+        shell: pwsh
+        run: |
+          choco install lazarus --version=4.0.0 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Chocolatey failed: $LASTEXITCODE" }
+
+      - name: Locate Free Pascal and inspect target
+        shell: pwsh
+        run: |
+          $compiler = Get-ChildItem -Path 'C:\lazarus', 'C:\Program Files\Lazarus' -Filter fpc.exe -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'x86_64-win64' } |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $compiler) { throw 'x86_64-win64 fpc.exe was not found' }
+          "FPC_PATH=$compiler" >> $env:GITHUB_ENV
+          & $compiler -iV
+          & $compiler -iTP
+          & $compiler -iTO
+          if ((& $compiler -iTP) -ne 'x86_64') { throw 'Unexpected FPC target CPU' }
+          if ((& $compiler -iTO) -ne 'win64') { throw 'Unexpected FPC target OS' }
+
+      - name: Fetch pinned Pascal source dependencies
+        shell: pwsh
+        run: |
+          $simpleSha = '7f606592557f429a4d9e176be5c0f04fd5be0460'
+          $regexSha = '19389caeb6823cddfb110ed284f57d1088dd8ac2'
+
+          git init _deps/SimpleHTMLParser
+          git -C _deps/SimpleHTMLParser remote add origin https://github.com/minouejapan/SimpleHTMLParser.git
+          git -C _deps/SimpleHTMLParser fetch --depth 1 origin $simpleSha
+          git -C _deps/SimpleHTMLParser checkout --detach FETCH_HEAD
+          if ((git -C _deps/SimpleHTMLParser rev-parse HEAD) -ne $simpleSha) { throw 'SimpleHTMLParser SHA mismatch' }
+          if (-not (Test-Path _deps/SimpleHTMLParser/shparser.pas)) { throw 'shparser.pas missing' }
+          if (-not (Test-Path _deps/SimpleHTMLParser/hparse.pas)) { throw 'hparse.pas missing' }
+
+          git init _deps/TRegExpr
+          git -C _deps/TRegExpr remote add origin https://github.com/andgineer/TRegExpr.git
+          git -C _deps/TRegExpr fetch --depth 1 origin $regexSha
+          git -C _deps/TRegExpr checkout --detach FETCH_HEAD
+          if ((git -C _deps/TRegExpr rev-parse HEAD) -ne $regexSha) { throw 'TRegExpr SHA mismatch' }
+          if (-not (Test-Path _deps/TRegExpr/src/regexpr.pas)) { throw 'regexpr.pas missing' }
+          if (-not (Test-Path _deps/TRegExpr/src/regexpr_compilers.inc)) { throw 'regexpr_compilers.inc missing' }
+          if (-not (Test-Path _deps/TRegExpr/src/regexpr_unicodedata.pas)) { throw 'regexpr_unicodedata.pas missing' }
+
+      - name: Compile Windows na6dl executable
+        shell: pwsh
+        run: |
+          $lazUtf8 = Get-ChildItem -Path 'C:\lazarus', 'C:\Program Files\Lazarus' -Filter lazutf8.pas -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $lazUtf8) { throw 'lazutf8.pas was not found' }
+          $lazUtilsDir = Split-Path -Parent $lazUtf8
+          New-Item -ItemType Directory -Force build\units | Out-Null
+          & $env:FPC_PATH `
+            '-Fu.' `
+            '-Fu_deps/SimpleHTMLParser' `
+            '-Fu_deps/TRegExpr/src' `
+            "-Fu$lazUtilsDir" `
+            '-FEbuild' `
+            '-FUbuild/units' `
+            na6dl.dpr
+          if ($LASTEXITCODE -ne 0) { throw "FPC failed: $LASTEXITCODE" }
+          if (-not (Test-Path build/na6dl.exe -PathType Leaf)) { throw 'na6dl.exe missing' }
+          Get-Item build/na6dl.exe | Select-Object FullName, Length
+
+      - name: Check Windows CLI usage without network access
+        shell: pwsh
+        run: |
+          $usage = & ./build/na6dl.exe 2>&1 | Out-String
+          $exitCode = $LASTEXITCODE
+          Write-Output $usage
+          if ($exitCode -notin @(-1, 255)) { throw "Unexpected no-argument exit code: $exitCode" }
+          if (-not $usage.Contains('na6dl --json')) { throw 'JSON option missing from usage' }
+          if (-not $usage.Contains('-j')) { throw 'Short JSON option missing from usage' }

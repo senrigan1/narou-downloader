@@ -675,7 +675,7 @@ begin
     Writeln(VERSION);
     Writeln('  使用方法');
     Writeln('  na6dl [-sDL開始ページ番号] 小説トップページURL [保存するTXTファイル名]');
-    Writeln('  na6dl --json 小説トップページURL [保存するJSONファイル名]');
+    Writeln('  na6dl --json または -j 小説トップページURL [保存するJSONファイル名]');
     ExitCode := -1;
     Exit;
   end;
