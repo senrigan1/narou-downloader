@@ -77,6 +77,7 @@ uses
   UniHtml,
   SHParser,
   BookJson,
+  NarouParser,
 {$IFDEF FPC}
   LazUTF8
 {$ELSE}
@@ -516,10 +517,9 @@ begin
       Exit;
     if JsonMode then
     begin
-      RawTitle := Parser.Find('h1', 'class', 'p-novel__title', False);
-      RawTitle := ReplaceRegExpr('<.*?>', RawTitle, '');
-      RawTitle := AfterDecord(Restore2RealChar(RawTitle));
+      NarouParser.GetReaderBookInfo(res, RawTitle, author);
       BookData.Title := RawTitle;
+      BookData.Author := author;
     end;
     // 作品タイトルに進捗状況を付加する
     if ((st = '【完結】') and (UTF8Pos('完結', title) = 0)) or (st <> '【完結】') then
@@ -543,10 +543,11 @@ begin
     end;
 
     TextBuff.Add(title);
-    author := Parser.Find('div', 'class', 'p-novel__author', False);
-    author := ReplaceRegExpr('<.*?>', ReplaceRegExpr('作者：', author, ''), '');
-    if JsonMode then
-      BookData.Author := AfterDecord(Restore2RealChar(author));
+    if not JsonMode then
+    begin
+      author := Parser.Find('div', 'class', 'p-novel__author', False);
+      author := ReplaceRegExpr('<.*?>', ReplaceRegExpr('作者：', author, ''), '');
+    end;
     TextBuff.Add(author);
     TextBuff.Add(CRLF + '［＃改ページ］');
     // あらすじは<br />で改行なのでテキスト成型なしで取得
@@ -608,7 +609,7 @@ begin
     end;
     if JsonMode then
     begin
-      GetReaderChapter(res, ReaderTitle, ReaderBody);
+      NarouParser.GetReaderChapter(res, ReaderTitle, ReaderBody);
       if ReaderTitle = '' then
         ReaderTitle := RawTitle;
       if ReaderBody = '' then
@@ -641,7 +642,7 @@ begin
     end;
     if JsonMode then
     begin
-      GetReaderChapter(res, ReaderTitle, ReaderBody);
+      NarouParser.GetReaderChapter(res, ReaderTitle, ReaderBody);
       if ReaderBody = '' then
         Exit;
       BookData.AddChapter(ReaderTitle, ReaderBody);

@@ -5,8 +5,11 @@ on:
     paths:
       - "na6dl.dpr"
       - "bookjson.pas"
+      - "narouparser.pas"
       - "unihtml.pas"
       - "lazutf8wrap.pas"
+      - "tests/fixtures/**"
+      - "tests/narou_integration_tests.pas"
       - ".github/workflows/na6dl-build.yml"
   push:
     branches:
@@ -15,8 +18,11 @@ on:
     paths:
       - "na6dl.dpr"
       - "bookjson.pas"
+      - "narouparser.pas"
       - "unihtml.pas"
       - "lazutf8wrap.pas"
+      - "tests/fixtures/**"
+      - "tests/narou_integration_tests.pas"
       - ".github/workflows/na6dl-build.yml"
   workflow_dispatch:
 
@@ -95,3 +101,22 @@ jobs:
           printf '%s\n' "$usage_output"
           test "$exit_code" -eq 255
           grep -F -- "na6dl --json" <<<"$usage_output"
+
+      - name: Compile offline Narou JSON integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          lazutf8_source="$(find /usr/lib/lazarus -type f -iname lazutf8.pas -print -quit)"
+          test -n "$lazutf8_source"
+          lazutils_dir="$(dirname "$lazutf8_source")"
+          fpc \
+            -Fu. \
+            -Fu_deps/SimpleHTMLParser \
+            -Fu_deps/TRegExpr/src \
+            -Fu"$lazutils_dir" \
+            -FEbuild \
+            -FUbuild/units \
+            tests/narou_integration_tests.pas
+
+      - name: Run offline Narou JSON integration tests
+        run: ./build/narou_integration_tests
