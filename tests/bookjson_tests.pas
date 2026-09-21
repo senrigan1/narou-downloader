@@ -99,11 +99,15 @@ begin
       'schema version missing');
     AssertTrue(Pos('"id": "001"', JsonText) < Pos('"id": "002"', JsonText),
       'chapter order is incorrect');
-    AssertTrue(Pos('一行目\r\n二行目', JsonText) > 0,
+    AssertTrue(Pos(UTF8Encode(UnicodeString('一行目')) + '\r\n' +
+      UTF8Encode(UnicodeString('二行目')), JsonText) > 0,
       'multiline body was not escaped');
-    AssertTrue(Pos('引用\"と\\と\tタブ', JsonText) > 0,
+    AssertTrue(Pos(UTF8Encode(UnicodeString('引用')) + '\"' +
+      UTF8Encode(UnicodeString('と')) + '\\' +
+      UTF8Encode(UnicodeString('と')) + '\t' +
+      UTF8Encode(UnicodeString('タブ')), JsonText) > 0,
       'quote, backslash, or tab was not escaped');
-    AssertTrue(Pos('［＃', JsonText) = 0,
+    AssertTrue(Pos(UTF8Encode(UnicodeString('［＃')), JsonText) = 0,
       'Aozora command leaked into JSON');
   finally
     Book.Free;
