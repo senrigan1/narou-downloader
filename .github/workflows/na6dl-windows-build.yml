@@ -109,3 +109,4 @@ jobs:
           if ($exitCode -notin @(-1, 255)) { throw "Unexpected no-argument exit code: $exitCode" }
           if (-not $usage.Contains('na6dl --json')) { throw 'JSON option missing from usage' }
           if (-not $usage.Contains('-j')) { throw 'Short JSON option missing from usage' }
+          exit 0
