@@ -93,8 +93,10 @@ uses
   ;
 *)
 
-{$R *.res}
-{$R na6dlver.res}
+{$IFDEF MSWIN}
+  {$R *.res}
+  {$R na6dlver.res}
+{$ENDIF}
 
 type
   TNvStat = record    // 作品情報保存用
